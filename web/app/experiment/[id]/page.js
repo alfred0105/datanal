@@ -24,6 +24,10 @@ export default function ExperimentPage({ params }) {
   const [newResult, setNewResult] = useState("성공");
   const [saving, setSaving] = useState(false);
 
+  // 인라인 편집
+  const [editCell, setEditCell] = useState(null); // { caseId, field }
+  const [editValue, setEditValue] = useState("");
+
   // 산점도
   const [scatterX, setScatterX] = useState(0);
   const [scatterY, setScatterY] = useState(1);
@@ -95,6 +99,42 @@ export default function ExperimentPage({ params }) {
     fetchData();
   }
 
+  // 인라인 편집
+  function startEdit(caseId, field, currentValue) {
+    setEditCell({ caseId, field });
+    setEditValue(currentValue != null ? String(currentValue) : "");
+  }
+
+  async function saveEdit() {
+    if (!editCell) return;
+    const { caseId, field } = editCell;
+    const c = cases.find(cs => cs.id === caseId);
+    if (!c) { setEditCell(null); return; }
+
+    const supabase = createClient();
+    let updateData;
+
+    if (field === "name") {
+      updateData = { name: editValue.trim() || c.name };
+    } else if (field === "result") {
+      updateData = { result: editValue };
+    } else {
+      // 변수값 수정
+      const newValsObj = { ...c.vals };
+      newValsObj[field] = editValue !== "" ? parseFloat(editValue) : null;
+      updateData = { vals: newValsObj };
+    }
+
+    await supabase.from("cases").update(updateData).eq("id", caseId);
+    setEditCell(null);
+    fetchData();
+  }
+
+  function handleEditKeyDown(e) {
+    if (e.key === "Enter") { e.preventDefault(); saveEdit(); }
+    else if (e.key === "Escape") setEditCell(null);
+  }
+
   function runPredict() {
     const input = {};
     for (const v of varNames) {
@@ -124,8 +164,8 @@ export default function ExperimentPage({ params }) {
     <div className="max-w-5xl mx-auto px-4 py-6">
       {/* ── 헤더 ── */}
       <div className="flex items-center gap-3 mb-4">
-        <button onClick={() => router.push("/dashboard")} className="btn-ghost text-xs px-3 py-1.5">
-          &larr; 목록
+        <button onClick={() => router.push(experiment.group_id ? `/group/${experiment.group_id}` : "/dashboard")} className="btn-ghost text-xs px-3 py-1.5">
+          &larr; 그룹
         </button>
         <div className="min-w-0">
           <h1 className="text-lg font-bold text-white truncate">{experiment.name}</h1>
@@ -250,16 +290,39 @@ export default function ExperimentPage({ params }) {
                 <tbody>
                   {cases.map((c, ci) => (
                     <tr key={c.id} className={`border-t border-border/30 hover:bg-white/[.02] ${ci % 2 ? "bg-white/[.01]" : ""}`}>
-                      <td className="px-3 py-2 text-white font-medium whitespace-nowrap">{c.name}</td>
+                      <td className="px-3 py-2 text-white font-medium whitespace-nowrap cursor-pointer hover:bg-acc/5"
+                        onClick={() => startEdit(c.id, "name", c.name)}>
+                        {editCell?.caseId === c.id && editCell?.field === "name" ? (
+                          <input value={editValue} onChange={e => setEditValue(e.target.value)}
+                            onBlur={saveEdit} onKeyDown={handleEditKeyDown} autoFocus
+                            className="w-full bg-bg border border-acc rounded px-1.5 py-0.5 text-sm text-white outline-none" />
+                        ) : c.name}
+                      </td>
                       {vars.map((v) => (
-                        <td key={v.name} className="px-3 py-2 text-right mono text-sm text-slate-300 whitespace-nowrap">
-                          {c.vals[v.name] != null ? c.vals[v.name] : "—"}
+                        <td key={v.name}
+                          className="px-3 py-2 text-right mono text-sm text-slate-300 whitespace-nowrap cursor-pointer hover:bg-acc/5"
+                          onClick={() => startEdit(c.id, v.name, c.vals[v.name])}>
+                          {editCell?.caseId === c.id && editCell?.field === v.name ? (
+                            <input type="number" step="any" value={editValue} onChange={e => setEditValue(e.target.value)}
+                              onBlur={saveEdit} onKeyDown={handleEditKeyDown} autoFocus
+                              className="w-full bg-bg border border-acc rounded px-1.5 py-0.5 text-sm text-white outline-none text-right mono" />
+                          ) : (c.vals[v.name] != null ? c.vals[v.name] : "—")}
                         </td>
                       ))}
-                      <td className="px-3 py-2 text-center">
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded ${
-                          c.result === "성공" ? "bg-blue-500/15 text-blue-400" : "bg-red-500/15 text-red-400"
-                        }`}>{c.result}</span>
+                      <td className="px-3 py-2 text-center cursor-pointer hover:bg-acc/5"
+                        onClick={() => startEdit(c.id, "result", c.result)}>
+                        {editCell?.caseId === c.id && editCell?.field === "result" ? (
+                          <select value={editValue} onChange={e => { setEditValue(e.target.value); }}
+                            onBlur={saveEdit} autoFocus
+                            className="bg-bg border border-acc rounded px-1.5 py-0.5 text-sm text-white outline-none">
+                            <option value="성공">성공</option>
+                            <option value="실패">실패</option>
+                          </select>
+                        ) : (
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                            c.result === "성공" ? "bg-blue-500/15 text-blue-400" : "bg-red-500/15 text-red-400"
+                          }`}>{c.result}</span>
+                        )}
                       </td>
                       <td className="px-2 py-2">
                         <button onClick={() => deleteCase(c.id)}

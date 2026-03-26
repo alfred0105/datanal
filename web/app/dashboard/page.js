@@ -4,218 +4,154 @@ import { createClient } from "../../lib/supabase";
 import { useRouter } from "next/navigation";
 
 export default function Dashboard() {
-  const supabase = createClient();
   const router = useRouter();
-  const [experiments, setExperiments] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
-
-  // 새 실험 폼
   const [newName, setNewName] = useState("");
-  const [newDesc, setNewDesc] = useState("");
-  const [varRows, setVarRows] = useState([
-    { name: "", unit: "" },
-    { name: "", unit: "" },
-    { name: "", unit: "" },
-  ]);
+  const [userId, setUserId] = useState(null);
 
-  const fetchExperiments = useCallback(async () => {
+  const fetchGroups = useCallback(async () => {
+    const supabase = createClient();
+    // 내가 속한 그룹 + 멤버수 + 실험수
     const { data } = await supabase
-      .from("experiments")
-      .select("*, cases(id)")
-      .order("created_at", { ascending: false });
-    setExperiments(data || []);
+      .from("group_members")
+      .select("group_id, role, groups(id, name, owner_id, created_at)")
+      .eq("user_id", userId)
+      .order("joined_at", { ascending: false });
+
+    if (!data) { setLoading(false); return; }
+
+    // 그룹별 멤버수, 실험수 조회
+    const gIds = data.map(d => d.groups.id);
+    const [{ data: memberCounts }, { data: expCounts }] = await Promise.all([
+      supabase.from("group_members").select("group_id").in("group_id", gIds),
+      supabase.from("experiments").select("group_id").in("group_id", gIds),
+    ]);
+
+    const mCount = {}, eCount = {};
+    (memberCounts || []).forEach(m => { mCount[m.group_id] = (mCount[m.group_id] || 0) + 1; });
+    (expCounts || []).forEach(e => { eCount[e.group_id] = (eCount[e.group_id] || 0) + 1; });
+
+    setGroups(data.map(d => ({
+      ...d.groups,
+      role: d.role,
+      memberCount: mCount[d.groups.id] || 0,
+      expCount: eCount[d.groups.id] || 0,
+    })));
     setLoading(false);
-  }, [supabase]);
+  }, [userId]);
 
   useEffect(() => {
-    // 인증 체크
+    const supabase = createClient();
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) router.push("/");
-      else fetchExperiments();
+      else { setUserId(user.id); }
     });
-  }, [supabase, router, fetchExperiments]);
+  }, [router]);
 
-  function addVarRow() {
-    setVarRows([...varRows, { name: "", unit: "" }]);
-  }
-
-  function removeVarRow(i) {
-    if (varRows.length <= 2) return;
-    setVarRows(varRows.filter((_, idx) => idx !== i));
-  }
-
-  function updateVar(i, field, val) {
-    const next = [...varRows];
-    next[i] = { ...next[i], [field]: val };
-    setVarRows(next);
-  }
+  useEffect(() => {
+    if (userId) fetchGroups();
+  }, [userId, fetchGroups]);
 
   async function handleCreate(e) {
     e.preventDefault();
-    const variables = varRows
-      .filter((v) => v.name.trim())
-      .map((v) => ({ name: v.name.trim(), unit: v.unit.trim() }));
-    if (variables.length < 2) return alert("변수 2개 이상 필요합니다");
+    const supabase = createClient();
+    const name = newName.trim();
+    if (!name) return;
 
-    const { data: { user } } = await supabase.auth.getUser();
-    const { error } = await supabase.from("experiments").insert({
-      user_id: user.id,
-      name: newName.trim() || "새 실험",
-      description: newDesc.trim(),
-      variables,
+    // 그룹 생성
+    const { data: grp, error } = await supabase
+      .from("groups").insert({ name, owner_id: userId }).select().single();
+    if (error) { alert(error.message); return; }
+
+    // 본인을 owner 멤버로 추가
+    await supabase.from("group_members").insert({
+      group_id: grp.id, user_id: userId, role: "owner"
     });
-    if (error) return alert(error.message);
 
-    setShowCreate(false);
     setNewName("");
-    setNewDesc("");
-    setVarRows([{ name: "", unit: "" }, { name: "", unit: "" }, { name: "", unit: "" }]);
-    fetchExperiments();
+    setShowCreate(false);
+    fetchGroups();
   }
 
-  async function deleteExperiment(id) {
-    if (!confirm("이 실험을 삭제하시겠습니까? 모든 케이스도 함께 삭제됩니다.")) return;
-    await supabase.from("experiments").delete().eq("id", id);
-    fetchExperiments();
+  async function deleteGroup(gid) {
+    if (!confirm("이 그룹을 삭제하시겠습니까? 모든 실험과 데이터가 삭제됩니다.")) return;
+    const supabase = createClient();
+    await supabase.from("groups").delete().eq("id", gid);
+    fetchGroups();
   }
 
   async function handleLogout() {
+    const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/");
   }
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
-      {/* 헤더 */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1
-            className="text-xl font-bold bg-clip-text text-transparent"
-            style={{ backgroundImage: "linear-gradient(135deg,#4f8ef7,#a78bfa)" }}
-          >
+          <h1 className="text-xl font-bold bg-clip-text text-transparent"
+            style={{ backgroundImage: "linear-gradient(135deg,#4f8ef7,#a78bfa)" }}>
             Radar Analysis
           </h1>
-          <p className="text-xs text-muted mt-0.5">내 실험 목록</p>
+          <p className="text-xs text-muted mt-0.5">내 그룹</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
-            + 새 실험
-          </button>
-          <button onClick={handleLogout} className="btn-ghost text-xs">
-            로그아웃
-          </button>
+          <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">+ 새 그룹</button>
+          <button onClick={handleLogout} className="btn-ghost text-xs">로그아웃</button>
         </div>
       </div>
 
-      {/* 새 실험 생성 모달 */}
+      {/* 그룹 생성 모달 */}
       {showCreate && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
-             onClick={() => setShowCreate(false)}>
-          <form
-            onClick={(e) => e.stopPropagation()}
-            onSubmit={handleCreate}
-            className="card w-full max-w-lg max-h-[85vh] overflow-y-auto"
-          >
-            <h2 className="text-lg font-bold text-white mb-4">새 실험 만들기</h2>
-
-            <label className="text-xs font-medium text-muted uppercase tracking-wider">실험 이름</label>
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-acc mb-3 mt-1"
-              placeholder="예: 합성반응 실험 A"
-              required
-            />
-
-            <label className="text-xs font-medium text-muted uppercase tracking-wider">설명 (선택)</label>
-            <input
-              value={newDesc}
-              onChange={(e) => setNewDesc(e.target.value)}
+          onClick={() => setShowCreate(false)}>
+          <form onClick={e => e.stopPropagation()} onSubmit={handleCreate}
+            className="card w-full max-w-sm">
+            <h2 className="text-lg font-bold text-white mb-4">새 그룹 만들기</h2>
+            <label className="text-xs font-medium text-muted uppercase tracking-wider">그룹 이름</label>
+            <input value={newName} onChange={e => setNewName(e.target.value)}
               className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-acc mb-4 mt-1"
-              placeholder="예: 촉매 농도 조건 변화 실험"
-            />
-
-            <label className="text-xs font-medium text-muted uppercase tracking-wider mb-2 block">
-              변수 정의 (최소 2개)
-            </label>
-            <div className="flex flex-col gap-2 mb-3">
-              {varRows.map((v, i) => (
-                <div key={i} className="flex gap-2 items-center">
-                  <input
-                    value={v.name}
-                    onChange={(e) => updateVar(i, "name", e.target.value)}
-                    className="flex-1 bg-bg border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-acc"
-                    placeholder={`변수${i + 1} 이름`}
-                  />
-                  <input
-                    value={v.unit}
-                    onChange={(e) => updateVar(i, "unit", e.target.value)}
-                    className="w-20 bg-bg border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-acc"
-                    placeholder="단위"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeVarRow(i)}
-                    className="text-red-400 hover:text-red-300 text-lg px-1"
-                    title="삭제"
-                  >
-                    &times;
-                  </button>
-                </div>
-              ))}
-            </div>
-            <button type="button" onClick={addVarRow} className="btn-ghost text-xs mb-4">
-              + 변수 추가
-            </button>
-
-            <div className="flex gap-2 mt-2">
+              placeholder="예: 합성반응 연구팀" required autoFocus />
+            <div className="flex gap-2">
               <button type="submit" className="btn-primary flex-1">만들기</button>
-              <button type="button" onClick={() => setShowCreate(false)} className="btn-ghost flex-1">
-                취소
-              </button>
+              <button type="button" onClick={() => setShowCreate(false)} className="btn-ghost flex-1">취소</button>
             </div>
           </form>
         </div>
       )}
 
-      {/* 실험 목록 */}
       {loading ? (
         <p className="text-muted text-sm text-center py-12">불러오는 중...</p>
-      ) : experiments.length === 0 ? (
+      ) : groups.length === 0 ? (
         <div className="text-center py-16">
-          <p className="text-muted text-sm mb-4">아직 실험이 없습니다</p>
-          <button onClick={() => setShowCreate(true)} className="btn-primary">
-            첫 번째 실험 만들기
-          </button>
+          <p className="text-muted text-sm mb-4">아직 그룹이 없습니다</p>
+          <button onClick={() => setShowCreate(true)} className="btn-primary">첫 그룹 만들기</button>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {experiments.map((exp) => (
-            <div
-              key={exp.id}
+          {groups.map(g => (
+            <div key={g.id}
               className="card flex items-center justify-between hover:border-acc/30 transition cursor-pointer group"
-              onClick={() => router.push(`/experiment/${exp.id}`)}
-            >
+              onClick={() => router.push(`/group/${g.id}`)}>
               <div className="min-w-0">
                 <h3 className="font-semibold text-white text-sm truncate group-hover:text-acc transition">
-                  {exp.name}
+                  {g.name}
                 </h3>
                 <div className="flex gap-3 mt-1 text-xs text-muted">
-                  <span>변수 {exp.variables?.length || 0}개</span>
-                  <span>케이스 {exp.cases?.length || 0}건</span>
-                  <span>{new Date(exp.created_at).toLocaleDateString("ko")}</span>
+                  <span>{g.role === "owner" ? "그룹장" : "멤버"}</span>
+                  <span>멤버 {g.memberCount}명</span>
+                  <span>실험 {g.expCount}개</span>
                 </div>
-                {exp.description && (
-                  <p className="text-xs text-muted/70 mt-1 truncate">{exp.description}</p>
-                )}
               </div>
-              <button
-                onClick={(e) => { e.stopPropagation(); deleteExperiment(exp.id); }}
-                className="btn-danger text-xs opacity-0 group-hover:opacity-100 transition shrink-0 ml-3"
-              >
-                삭제
-              </button>
+              {g.role === "owner" && (
+                <button onClick={e => { e.stopPropagation(); deleteGroup(g.id); }}
+                  className="btn-danger text-xs opacity-0 group-hover:opacity-100 transition shrink-0 ml-3">
+                  삭제
+                </button>
+              )}
             </div>
           ))}
         </div>
