@@ -3,9 +3,13 @@ import { useState, useEffect } from "react";
 import { createClient } from "../lib/supabase";
 import { useRouter } from "next/navigation";
 
+function toFakeEmail(name) {
+  return encodeURIComponent(name) + "@radar.app";
+}
+
 export default function LoginPage() {
   const [mode, setMode] = useState("login"); // login | signup
-  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -19,11 +23,16 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     const supabase = createClient();
+    const email = toFakeEmail(name.trim());
     try {
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { display_name: name.trim() } },
+        });
         if (error) throw error;
-        setError("가입 완료! 이메일을 확인하거나 바로 로그인하세요.");
+        setError("가입 완료! 바로 로그인하세요.");
         setMode("login");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -31,7 +40,13 @@ export default function LoginPage() {
         router.push("/dashboard");
       }
     } catch (err) {
-      setError(err.message);
+      if (err.message.includes("Invalid login")) {
+        setError("이름 또는 비밀번호가 틀렸습니다.");
+      } else if (err.message.includes("already registered")) {
+        setError("이미 사용 중인 이름입니다.");
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -66,14 +81,14 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <label className="text-xs font-medium text-muted uppercase tracking-wider">이메일</label>
+          <label className="text-xs font-medium text-muted uppercase tracking-wider">이름</label>
           <input
-            type="email"
+            type="text"
             required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
             className="w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-acc transition"
-            placeholder="you@example.com"
+            placeholder="한글, 영어 모두 가능"
           />
           <label className="text-xs font-medium text-muted uppercase tracking-wider mt-1">비밀번호</label>
           <input
