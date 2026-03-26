@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>방사형 데이터 분석 | 성공 확률 시각화</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-primary: #0d0f1a;
+      --bg-secondary: #12152b;
+      --bg-card: #1a1e38;
+      --bg-card-hover: #1f2442;
+      --accent-blue: #4f8ef7;
+      --accent-purple: #8b5cf6;
+      --accent-teal: #14b8a6;
+      --text-primary: #e8eaf6;
+      --text-secondary: #9fa8d5;
+      --text-muted: #5c6490;
+      --border: rgba(79, 142, 247, 0.15);
+      --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      --glow: 0 0 30px rgba(79, 142, 247, 0.15);
+      --success-low: #ef4444;
+      --success-mid: #f59e0b;
+      --success-high: #22c55e;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Animated background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 20% 20%, rgba(79, 142, 247, 0.06) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 80%, rgba(139, 92, 246, 0.06) 0%, transparent 60%),
+        radial-gradient(ellipse at 50% 50%, rgba(20, 184, 166, 0.04) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    header {
+      padding: 24px 40px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(13, 15, 26, 0.85);
+    }
+
+    .logo {
+      width: 42px; height: 42px;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+    }
+
+    header h1 {
+      font-size: 20px; font-weight: 700;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+
+    header p { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+
+    .container { max-width: 1600px; margin: 0 auto; padding: 32px 40px; }
+
+    /* Upload Zone */
+    .upload-zone {
+      border: 2px dashed rgba(79, 142, 247, 0.3);
+      border-radius: 20px;
+      padding: 60px 40px;
+      text-align: center;
+      background: var(--bg-card);
+      cursor: pointer;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 32px;
+    }
+
+    .upload-zone::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(79, 142, 247, 0.03), rgba(139, 92, 246, 0.03));
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: var(--accent-blue);
+      box-shadow: var(--glow);
+      transform: translateY(-2px);
+    }
+
+    .upload-zone:hover::before { opacity: 1; }
+
+    .upload-icon {
+      font-size: 56px; margin-bottom: 16px;
+      filter: drop-shadow(0 0 20px rgba(79, 142, 247, 0.5));
+    }
+
+    .upload-zone h2 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+    .upload-zone p { color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+
+    .upload-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      margin-top: 20px;
+      padding: 12px 28px;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      border: none; border-radius: 10px;
+      color: white; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: all 0.3s;
+    }
+
+    .upload-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(79, 142, 247, 0.4); }
+
+    #fileInput { display: none; }
+
+    /* Data Preview */
+    .section-title {
+      font-size: 16px; font-weight: 600; color: var(--text-secondary);
+      text-transform: uppercase; letter-spacing: 1.5px;
+      margin-bottom: 16px;
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    .section-title::before {
+      content: '';
+      width: 4px; height: 18px;
+      background: linear-gradient(to bottom, var(--accent-blue), var(--accent-purple));
+      border-radius: 2px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: var(--shadow);
+    }
+
+    /* Config Panel */
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .config-item label {
+      display: block;
+      font-size: 12px; font-weight: 500; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+
+    .config-item select, .config-item input {
+      width: 100%;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: var(--text-primary);
+      font-size: 14px; font-family: 'Inter', sans-serif;
+      transition: all 0.2s;
+    }
+
+    .config-item select:focus, .config-item input:focus {
+      outline: none;
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 3px rgba(79, 142, 247, 0.1);
+    }
+
+    /* Main layout */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      gap: 24px;
+    }
+
+    @media (max-width: 1200px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    /* Chart area */
+    .chart-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 580px;
+    }
+
+    #radarChart {
+      width: 100%; height: 100%;
+    }
+
+    /* Stats Panel */
+    .stats-panel { display: flex; flex-direction: column; gap: 16px; }
+
+    .stat-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      transition: all 0.2s;
+    }
+
+    .stat-card:hover {
+      border-color: rgba(79, 142, 247, 0.3);
+      transform: translateX(3px);
+    }
+
+    .stat-axis {
+      font-size: 13px; font-weight: 600; color: var(--text-primary);
+      margin-bottom: 10px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .stat-badge {
+      font-size: 12px; font-weight: 700;
+      padding: 3px 10px; border-radius: 20px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .prob-bar-bg {
+      height: 8px; border-radius: 4px;
+      background: rgba(255,255,255,0.08);
+      margin-bottom: 6px; overflow: hidden;
+    }
+
+    .prob-bar-fill {
+      height: 100%; border-radius: 4px;
+      transition: width 1s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .stat-meta {
+      font-size: 11px; color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Legend */
+    .legend {
+      display: flex; flex-wrap: wrap; gap: 12px;
+      margin-top: 16px;
+    }
+
+    .legend-item {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; color: var(--text-secondary);
+    }
+
+    .legend-dot {
+      width: 12px; height: 12px; border-radius: 3px;
+    }
+
+    /* Color scale */
+    .color-scale {
+      display: flex; align-items: center; gap: 12px;
+      margin-top: 12px;
+    }
+
+    .scale-bar {
+      flex: 1; height: 12px; border-radius: 6px;
+      background: linear-gradient(to right, #ef4444, #f59e0b, #22c55e);
+    }
+
+    .scale-label { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono'; }
+
+    /* Analyze button */
+    .analyze-btn {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      border: none; border-radius: 12px;
+      color: white; font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: all 0.3s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      margin-top: 8px;
+    }
+
+    .analyze-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 30px rgba(79, 142, 247, 0.4);
+    }
+
+    .analyze-btn:disabled {
+      opacity: 0.4; cursor: not-allowed; transform: none;
+    }
+
+    /* Table */
+    .table-scroll { overflow-x: auto; border-radius: 10px; }
+
+    table {
+      width: 100%; border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th {
+      background: var(--bg-secondary);
+      padding: 10px 14px; text-align: left;
+      color: var(--text-muted); font-weight: 500;
+      font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 9px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      color: var(--text-secondary);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    tr:hover td { background: rgba(79, 142, 247, 0.05); }
+
+    /* Overall score */
+    .overall-score {
+      text-align: center; padding: 20px;
+      background: linear-gradient(135deg, rgba(79, 142, 247, 0.1), rgba(139, 92, 246, 0.1));
+      border-radius: 16px;
+      border: 1px solid rgba(79, 142, 247, 0.2);
+      margin-bottom: 16px;
+    }
+
+    .score-label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+    .score-value {
+      font-size: 48px; font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      margin: 8px 0;
+    }
+
+    .score-desc { font-size: 13px; color: var(--text-secondary); }
+
+    /* Tooltip */
+    .tooltip {
+      position: absolute;
+      background: rgba(26, 30, 56, 0.95);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      pointer-events: none;
+      font-size: 13px;
+      z-index: 999;
+      backdrop-filter: blur(10px);
+      box-shadow: var(--shadow);
+      display: none;
+    }
+
+    .hidden { display: none !important; }
+
+    /* Sample data notice */
+    .notice {
+      padding: 12px 16px;
+      background: rgba(20, 184, 166, 0.1);
+      border: 1px solid rgba(20, 184, 166, 0.2);
+      border-radius: 10px;
+      font-size: 13px; color: var(--accent-teal);
+      margin-bottom: 20px;
+      display: flex; gap: 8px; align-items: flex-start;
+    }
+
+    /* Animate in */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .fade-in { animation: fadeInUp 0.5s ease forwards; }
+
+    /* Pulse */
+    @keyframes pulse-ring {
+      0% { transform: scale(1); opacity: 0.8; }
+      50% { transform: scale(1.03); opacity: 0.5; }
+      100% { transform: scale(1); opacity: 0.8; }
+    }
+
+    .sheet-tabs {
+      display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;
+    }
+
+    .sheet-tab {
+      padding: 6px 14px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px; color: var(--text-secondary);
+      cursor: pointer; transition: all 0.2s;
+    }
+
+    .sheet-tab.active, .sheet-tab:hover {
+      background: rgba(79, 142, 247, 0.15);
+      border-color: var(--accent-blue);
+      color: var(--accent-blue);
+    }
+
+    .row-selector {
+      display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;
+    }
+
+    .row-chip {
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+      color: var(--text-muted);
+      transition: all 0.2s;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .row-chip.selected {
+      color: white;
+      border-color: transparent;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">📡</div>
+  <div>
+    <h1>방사형 데이터 분석기</h1>
+    <p>Radar Chart · Overlap Success Probability · Gradient Visualization</p>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Upload -->
+  <div class="upload-zone" id="uploadZone">
+    <div class="upload-icon">📊</div>
+    <h2>엑셀 파일을 업로드하세요</h2>
+    <p>X축 데이터를 축으로, 각 행/열 데이터를 겹쳐 분석합니다<br>
+       지원: .xlsx, .xls, .csv · 드래그 앤 드롭 가능</p>
+    <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+      📂 파일 선택
+    </button>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" />
+  </div>
+
+  <!-- Analysis section (hidden until data loaded) -->
+  <div id="analysisSection" class="hidden">
+
+    <div class="notice">
+      💡 <span>각 데이터 시리즈가 방사형 차트에 겹쳐서 표시됩니다. <strong>겹치는 구간</strong>일수록 성공 확률이 높으며, 초록색으로 강조됩니다.</span>
+    </div>
+
+    <!-- Sheet selector -->
+    <div class="card">
+      <div class="section-title">데이터 시트</div>
+      <div class="sheet-tabs" id="sheetTabs"></div>
+
+      <div class="section-title" style="margin-top:20px">데이터 미리보기</div>
+      <div class="table-scroll" id="dataPreview"></div>
+    </div>
+
+    <!-- Config -->
+    <div class="card">
+      <div class="section-title">분석 설정</div>
+      <div class="config-grid">
+        <div class="config-item">
+          <label>헤더 행 (X축 레이블)</label>
+          <select id="headerRow"></select>
+        </div>
+        <div class="config-item">
+          <label>분석할 데이터 행 (복수 선택)</label>
+          <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">아래에서 클릭하여 선택</p>
+          <div class="row-selector" id="rowSelector"></div>
+        </div>
+        <div class="config-item">
+          <label>정규화 방식</label>
+          <select id="normalizeMethod">
+            <option value="minmax">Min-Max (0~100%)</option>
+            <option value="zscore">Z-Score 표준화</option>
+            <option value="none">원본값 유지</option>
+          </select>
+        </div>
+        <div class="config-item">
+          <label>겹침 판정 임계값 (%)</label>
+          <input type="number" id="thresholdInput" value="20" min="1" max="50" />
+        </div>
+      </div>
+      <button class="analyze-btn" id="analyzeBtn">
+        🔍 분석 시작
+      </button>
+    </div>
+
+    <!-- Chart + Stats -->
+    <div class="main-grid">
+
+      <!-- Chart -->
+      <div class="card">
+        <div class="section-title">방사형 차트 · 성공 확률 오버레이</div>
+        <div class="legend" id="chartLegend"></div>
+        <div class="chart-wrapper">
+          <svg id="radarChart"></svg>
+        </div>
+        <div style="margin-top: 16px;">
+          <p class="section-title" style="font-size:12px;margin-bottom:8px;">성공 확률 색상 스케일</p>
+          <div class="color-scale">
+            <span class="scale-label">0%</span>
+            <div class="scale-bar"></div>
+            <span class="scale-label">100%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-panel">
+        <div class="overall-score" id="overallScore">
+          <div class="score-label">전체 평균 성공 확률</div>
+          <div class="score-value" id="overallValue">—</div>
+          <div class="score-desc" id="overallDesc">분석 결과가 여기 표시됩니다</div>
+        </div>
+
+        <div class="card" style="margin-bottom:0">
+          <div class="section-title">축별 성공 확률</div>
+          <div id="statsCards"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Results table -->
+    <div class="card" style="margin-top:24px;" id="resultsTableCard">
+      <div class="section-title">분석 결과 테이블</div>
+      <div class="table-scroll" id="resultsTable"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- Tooltip -->
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+// ============================================================
+//  State
+// ============================================================
+let workbook = null;
+let sheets = {};
+let currentSheet = null;
+let parsedData = [];
+let selectedRows = new Set();
+let headers = [];
+let analysisResult = null;
+
+const SERIES_COLORS = [
+  '#4f8ef7', '#8b5cf6', '#14b8a6', '#f59e0b',
+  '#ec4899', '#22c55e', '#fb923c', '#06b6d4'
+];
+
+// ============================================================
+//  File Upload
+// ============================================================
+const uploadZone = document.getElementById('uploadZone');
+const fileInput  = document.getElementById('fileInput');
+
+uploadZone.addEventListener('dragover',  e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault(); uploadZone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
+
+function processFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const data = new Uint8Array(e.target.result);
+    workbook = XLSX.read(data, { type: 'array' });
+    sheets = {};
+    workbook.SheetNames.forEach(name => {
+      sheets[name] = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1 });
+    });
+    renderSheetTabs();
+    selectSheet(workbook.SheetNames[0]);
+    document.getElementById('analysisSection').classList.remove('hidden');
+    document.getElementById('analysisSection').classList.add('fade-in');
+    uploadZone.style.marginBottom = '0';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ============================================================
+//  Sheet Tabs
+// ============================================================
+function renderSheetTabs() {
+  const tabs = document.getElementById('sheetTabs');
+  tabs.innerHTML = '';
+  workbook.SheetNames.forEach(name => {
+    const btn = document.createElement('div');
+    btn.className = 'sheet-tab';
+    btn.textContent = name;
+    btn.onclick = () => selectSheet(name);
+    tabs.appendChild(btn);
+  });
+}
+
+function selectSheet(name) {
+  currentSheet = name;
+  parsedData = sheets[name] || [];
+  document.querySelectorAll('.sheet-tab').forEach(t =>
+    t.classList.toggle('active', t.textContent === name));
+  renderDataPreview();
+  renderConfig();
+  selectedRows.clear();
+  renderRowSelector();
+}
+
+// ============================================================
+//  Data Preview
+// ============================================================
+function renderDataPreview() {
+  const preview = parsedData.slice(0, 8);
+  let html = '<table><thead><tr>';
+  html += '<th>#</th>';
+  if (preview[0]) preview[0].forEach((_, i) => html += `<th>Col ${i+1}</th>`);
+  html += '</tr></thead><tbody>';
+  preview.forEach((row, ri) => {
+    html += `<tr><td style="color:var(--accent-blue)">${ri}</td>`;
+    row.forEach(cell => html += `<td>${cell ?? ''}</td>`);
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('dataPreview').innerHTML = html;
+}
+
+// ============================================================
+//  Config Panel
+// ============================================================
+function renderConfig() {
+  // Header row select
+  const sel = document.getElementById('headerRow');
+  sel.innerHTML = '';
+  parsedData.slice(0, 10).forEach((row, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    const preview = row.filter(Boolean).slice(0, 5).join(', ');
+    opt.textContent = `행 ${i}: ${preview}`;
+    sel.appendChild(opt);
+  });
+  sel.value = 0;
+  sel.onchange = renderRowSelector;
+  renderRowSelector();
+}
+
+function renderRowSelector() {
+  const headerIdx = parseInt(document.getElementById('headerRow').value);
+  const container = document.getElementById('rowSelector');
+  container.innerHTML = '';
+  parsedData.forEach((row, i) => {
+    if (i === headerIdx) return;
+    const hasData = row.some(v => typeof v === 'number' || (!isNaN(parseFloat(v)) && v !== ''));
+    if (!hasData) return;
+    const chip = document.createElement('div');
+    chip.className = 'row-chip' + (selectedRows.has(i) ? ' selected' : '');
+    const label = row[0] ?? `행 ${i}`;
+    chip.textContent = label;
+    chip.style.background = selectedRows.has(i) ? SERIES_COLORS[(selectedRows.size) % SERIES_COLORS.length] : '';
+    chip.onclick = () => toggleRow(i, chip);
+    container.appendChild(chip);
+  });
+  recolorChips();
+}
+
+function toggleRow(i, chip) {
+  if (selectedRows.has(i)) {
+    selectedRows.delete(i);
+    chip.classList.remove('selected');
+    chip.style.background = '';
+  } else {
+    selectedRows.add(i);
+    chip.classList.add('selected');
+  }
+  recolorChips();
+}
+
+function recolorChips() {
+  let idx = 0;
+  document.querySelectorAll('.row-chip.selected').forEach(c => {
+    c.style.background = SERIES_COLORS[idx % SERIES_COLORS.length];
+    idx++;
+  });
+}
+
+// ============================================================
+//  Analysis
+// ============================================================
+document.getElementById('analyzeBtn').addEventListener('click', runAnalysis);
+
+function runAnalysis() {
+  const headerIdx = parseInt(document.getElementById('headerRow').value);
+  const normalizeMethod = document.getElementById('normalizeMethod').value;
+  const threshold = parseFloat(document.getElementById('thresholdInput').value) / 100;
+
+  if (selectedRows.size < 2) {
+    alert('최소 2개 이상의 데이터 행을 선택해주세요!');
+    return;
+  }
+
+  const headerRow = parsedData[headerIdx];
+  headers = [];
+  const colIndices = [];
+
+  headerRow.forEach((val, i) => {
+    if (i === 0) return; // skip label col
+    if (val !== null && val !== undefined && val !== '') {
+      headers.push(String(val));
+      colIndices.push(i);
+    }
+  });
+
+  // Extract series
+  const rawSeries = [];
+  let colorIdx = 0;
+  selectedRows.forEach(rowIdx => {
+    const row = parsedData[rowIdx];
+    const name = String(row[0] ?? `Row ${rowIdx}`);
+    const values = colIndices.map(ci => {
+      const v = row[ci];
+      return (v !== null && v !== undefined && v !== '') ? parseFloat(v) : NaN;
+    });
+    rawSeries.push({ name, values, color: SERIES_COLORS[colorIdx++ % SERIES_COLORS.length] });
+  });
+
+  // Normalize
+  let series = rawSeries.map(s => ({ ...s, normalized: [...s.values] }));
+
+  if (normalizeMethod === 'minmax') {
+    colIndices.forEach((_, ai) => {
+      const vals = series.map(s => s.values[ai]).filter(v => !isNaN(v));
+      const mn = Math.min(...vals), mx = Math.max(...vals);
+      series.forEach(s => {
+        s.normalized[ai] = isNaN(s.values[ai]) ? NaN :
+          (mx === mn ? 50 : ((s.values[ai] - mn) / (mx - mn)) * 100);
+      });
+    });
+  } else if (normalizeMethod === 'zscore') {
+    colIndices.forEach((_, ai) => {
+      const vals = series.map(s => s.values[ai]).filter(v => !isNaN(v));
+      const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+      const std  = Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/vals.length) || 1;
+      series.forEach(s => {
+        s.normalized[ai] = isNaN(s.values[ai]) ? NaN :
+          Math.min(100, Math.max(0, ((s.values[ai]-mean)/std)*20 + 50));
+      });
+    });
+  } else {
+    // no normalization – just use raw
+    colIndices.forEach((_, ai) => {
+      const vals = series.map(s => s.values[ai]).filter(v => !isNaN(v));
+      const mn = Math.min(...vals), mx = Math.max(...vals);
+      series.forEach(s => {
+        s.normalized[ai] = isNaN(s.values[ai]) ? NaN :
+          (mx === mn ? 50 : ((s.values[ai] - mn) / (mx - mn)) * 100);
+      });
+    });
+  }
+
+  // Calculate success probability per axis
+  // For each axis: measure how closely the values cluster (low spread = high agreement = high success)
+  const axisProbs = headers.map((h, ai) => {
+    const vals = series.map(s => s.normalized[ai]).filter(v => !isNaN(v));
+    if (vals.length < 2) return 0;
+
+    const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+    const std  = Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/vals.length);
+
+    // How many pairs are within threshold of each other?
+    let pairs = 0, overlapping = 0;
+    for (let i=0; i<vals.length; i++) {
+      for (let j=i+1; j<vals.length; j++) {
+        pairs++;
+        if (Math.abs(vals[i] - vals[j]) <= threshold * 100) overlapping++;
+      }
+    }
+    const overlapRatio = pairs > 0 ? overlapping / pairs : 0;
+
+    // Also factor in that values are high (not just consistent)
+    const heightScore = mean / 100;
+
+    // Combined: 60% overlap + 40% average height
+    return Math.round((overlapRatio * 0.6 + heightScore * 0.4) * 100);
+  });
+
+  const overallProb = Math.round(axisProbs.reduce((a,b)=>a+b,0)/axisProbs.length);
+
+  analysisResult = { series, headers, axisProbs, overallProb };
+
+  renderChart(analysisResult);
+  renderStats(analysisResult);
+  renderResultsTable(analysisResult);
+}
+
+// ============================================================
+//  Radar Chart (D3)
+// ============================================================
+function renderChart({ series, headers, axisProbs }) {
+  const svg = d3.select('#radarChart');
+  svg.selectAll('*').remove();
+
+  const W = document.getElementById('radarChart').parentElement.clientWidth;
+  const H = Math.min(W, 560);
+  const cx = W / 2, cy = H / 2;
+  const R  = Math.min(cx, cy) - 80;
+
+  svg.attr('viewBox', `0 0 ${W} ${H}`)
+     .attr('width', W).attr('height', H);
+
+  const N = headers.length;
+  const angle = i => (Math.PI * 2 * i / N) - Math.PI / 2;
+
+  const ax = (i, r) => cx + r * Math.cos(angle(i));
+  const ay = (i, r) => cy + r * Math.sin(angle(i));
+
+  // Defs: gradients & filters
+  const defs = svg.append('defs');
+
+  // Glow filter
+  const filter = defs.append('filter').attr('id','glow');
+  filter.append('feGaussianBlur').attr('stdDeviation','4').attr('result','coloredBlur');
+  const feMerge = filter.append('feMerge');
+  feMerge.append('feMergeNode').attr('in','coloredBlur');
+  feMerge.append('feMergeNode').attr('in','SourceGraphic');
+
+  // Success gradient for each axis (radial segment coloring)
+  axisProbs.forEach((prob, i) => {
+    const gid = `axGrad${i}`;
+    const gr = defs.append('radialGradient').attr('id', gid)
+      .attr('cx', '50%').attr('cy', '50%').attr('r','50%');
+    const color = probColor(prob);
+    gr.append('stop').attr('offset','0%').attr('stop-color', color).attr('stop-opacity', 0.18);
+    gr.append('stop').attr('offset','100%').attr('stop-color', color).attr('stop-opacity', 0.04);
+  });
+
+  // Background rings
+  [0.2, 0.4, 0.6, 0.8, 1.0].forEach(fraction => {
+    const pts = headers.map((_, i) => `${ax(i, R*fraction)},${ay(i, R*fraction)}`).join(' ');
+    svg.append('polygon').attr('points', pts)
+       .attr('fill','none')
+       .attr('stroke', 'rgba(255,255,255,0.06)')
+       .attr('stroke-width', 1);
+    svg.append('text')
+       .attr('x', ax(0, R*fraction) + 5)
+       .attr('y', ay(0, R*fraction))
+       .attr('fill','rgba(255,255,255,0.2)')
+       .attr('font-size', 10)
+       .attr('font-family','JetBrains Mono')
+       .text(Math.round(fraction * 100) + '%');
+  });
+
+  // Axes
+  headers.forEach((h, i) => {
+    svg.append('line')
+       .attr('x1', cx).attr('y1', cy)
+       .attr('x2', ax(i, R)).attr('y2', ay(i, R))
+       .attr('stroke','rgba(255,255,255,0.1)')
+       .attr('stroke-width', 1);
+
+    // Axis success probability shading (wedge)
+    const prob = axisProbs[i];
+    const col  = probColor(prob);
+    const prevI = (i - 1 + N) % N;
+    const nextI = (i + 1) % N;
+
+    // Draw colored wedge from center to axis tip area
+    const wedgePts = [
+      `${cx},${cy}`,
+      `${ax(i, R * 0.25)},${ay(i, R * 0.25)}`,
+      `${ax(i, R)},${ay(i, R)}`,
+      `${ax(i, R * 0.25)},${ay(i, R * 0.25)}`,
+    ].join(' ');
+
+    // Simple colored line on axis proportional to probability
+    svg.append('line')
+       .attr('x1', cx).attr('y1', cy)
+       .attr('x2', ax(i, R * prob/100)).attr('y2', ay(i, R * prob/100))
+       .attr('stroke', col)
+       .attr('stroke-width', 3)
+       .attr('stroke-opacity', 0.5)
+       .attr('filter', 'url(#glow)');
+
+    // Dot at tip of success line
+    svg.append('circle')
+       .attr('cx', ax(i, R * prob/100))
+       .attr('cy', ay(i, R * prob/100))
+       .attr('r', 5)
+       .attr('fill', col)
+       .attr('opacity', 0.8)
+       .attr('filter', 'url(#glow)');
+
+    // Axis label
+    const lx = ax(i, R + 28);
+    const ly = ay(i, R + 28);
+    const labelEl = svg.append('text')
+       .attr('x', lx).attr('y', ly)
+       .attr('text-anchor', lx < cx - 1 ? 'end' : lx > cx + 1 ? 'start' : 'middle')
+       .attr('dominant-baseline', 'middle')
+       .attr('fill', '#c0c8f0')
+       .attr('font-size', 12)
+       .attr('font-family','Inter, sans-serif')
+       .attr('font-weight', 500)
+       .text(h);
+
+    // Probability badge near axis tip
+    const bx = ax(i, R + 14);
+    const by = ay(i, R + 14);
+    const badge = svg.append('g');
+    const badgeW = 38, badgeH = 16;
+    badge.append('rect')
+       .attr('x', bx - badgeW/2).attr('y', by - badgeH/2)
+       .attr('width', badgeW).attr('height', badgeH)
+       .attr('rx', 8).attr('ry', 8)
+       .attr('fill', col).attr('opacity', 0.25);
+    badge.append('text')
+       .attr('x', bx).attr('y', by)
+       .attr('text-anchor','middle').attr('dominant-baseline','middle')
+       .attr('fill', col).attr('font-size', 9)
+       .attr('font-family','JetBrains Mono')
+       .attr('font-weight', 700)
+       .text(`${prob}%`);
+  });
+
+  // ---- Compute overlap zone ----
+  // For each axis, find min-max "overlap band"
+  const overlapPolygon = headers.map((_, ai) => {
+    const vals = series.map(s => s.normalized[ai]).filter(v => !isNaN(v));
+    const mn = Math.min(...vals), mx = Math.max(...vals);
+    const mid = (mn + mx) / 2;
+    const threshold = parseFloat(document.getElementById('thresholdInput').value);
+    // Overlap region: ±threshold around median, capped to 0-100
+    const lo = Math.max(0, mid - threshold/2);
+    const hi = Math.min(100, mid + threshold/2);
+    return { lo: lo/100, hi: hi/100, mid: mid/100 };
+  });
+
+  // Draw overlap band polygon (filled area showing where data clusters)
+  const hiPts = headers.map((_, i) => `${ax(i, R * overlapPolygon[i].hi)},${ay(i, R * overlapPolygon[i].hi)}`).join(' ');
+  const loPts = [...headers.map((_, i) => i)].reverse().map(i => `${ax(i, R * overlapPolygon[i].lo)},${ay(i, R * overlapPolygon[i].lo)}`).join(' ');
+
+  // Overlap fill gradient
+  const overlapGrad = defs.append('radialGradient').attr('id','overlapGrad')
+    .attr('cx','50%').attr('cy','50%').attr('r','50%');
+  overlapGrad.append('stop').attr('offset','0%').attr('stop-color','#22c55e').attr('stop-opacity',0.22);
+  overlapGrad.append('stop').attr('offset','100%').attr('stop-color','#14b8a6').attr('stop-opacity',0.08);
+
+  svg.append('polygon')
+     .attr('points', hiPts + ' ' + loPts)
+     .attr('fill','url(#overlapGrad)')
+     .attr('stroke','rgba(34,197,94,0.3)')
+     .attr('stroke-width', 1.5)
+     .attr('stroke-dasharray','4,3');
+
+  // ---- Data series polygons ----
+  series.forEach((s, si) => {
+    const pts = headers.map((_, ai) => {
+      const v = s.normalized[ai];
+      return isNaN(v) ? `${cx},${cy}` : `${ax(ai, R * v/100)},${ay(ai, R * v/100)}`;
+    }).join(' ');
+
+    // Fill
+    svg.append('polygon')
+       .attr('points', pts)
+       .attr('fill', s.color)
+       .attr('fill-opacity', 0.07)
+       .attr('stroke', s.color)
+       .attr('stroke-width', 2)
+       .attr('stroke-opacity', 0.85)
+       .attr('filter', 'url(#glow)');
+
+    // Dots on vertices
+    headers.forEach((_, ai) => {
+      const v = s.normalized[ai];
+      if (isNaN(v)) return;
+      svg.append('circle')
+         .attr('cx', ax(ai, R * v/100))
+         .attr('cy', ay(ai, R * v/100))
+         .attr('r', 4)
+         .attr('fill', s.color)
+         .attr('stroke','#0d0f1a')
+         .attr('stroke-width', 1.5)
+         .attr('cursor', 'pointer')
+         .on('mouseover', function(event) {
+            const tt = document.getElementById('tooltip');
+            tt.style.display = 'block';
+            tt.innerHTML = `<strong style="color:${s.color}">${s.name}</strong><br>
+              <span style="color:var(--text-muted)">${headers[ai]}</span><br>
+              원본: <strong>${s.values[ai]?.toFixed(2) ?? 'N/A'}</strong>&nbsp;
+              정규화: <strong>${v.toFixed(1)}%</strong>`;
+         })
+         .on('mousemove', function(event) {
+            const tt = document.getElementById('tooltip');
+            tt.style.left = (event.pageX + 14) + 'px';
+            tt.style.top  = (event.pageY - 28) + 'px';
+         })
+         .on('mouseout', () => document.getElementById('tooltip').style.display = 'none');
+    });
+  });
+
+  // Center dot
+  svg.append('circle').attr('cx',cx).attr('cy',cy).attr('r',4)
+     .attr('fill','rgba(255,255,255,0.2)');
+
+  // Legend
+  const legend = document.getElementById('chartLegend');
+  legend.innerHTML = series.map(s =>
+    `<div class="legend-item">
+       <div class="legend-dot" style="background:${s.color}"></div>
+       <span>${s.name}</span>
+     </div>`
+  ).join('') +
+  `<div class="legend-item">
+     <div class="legend-dot" style="background:linear-gradient(135deg,rgba(34,197,94,0.4),rgba(20,184,166,0.4));border:1px dashed rgba(34,197,94,0.5)"></div>
+     <span>겹침 구간 (성공 영역)</span>
+   </div>`;
+}
+
+// ============================================================
+//  Stats Panel
+// ============================================================
+function renderStats({ headers, axisProbs, overallProb, series }) {
+  document.getElementById('overallValue').textContent = overallProb + '%';
+  const col = probColor(overallProb);
+  document.getElementById('overallValue').style.backgroundImage = `linear-gradient(135deg, ${col}, ${col}99)`;
+
+  let desc = '낮음 — 데이터 간 불일치가 많습니다';
+  if (overallProb >= 70) desc = '높음 — 데이터들이 잘 일치합니다! 🎯';
+  else if (overallProb >= 40) desc = '중간 — 일부 구간에서 일치가 보입니다';
+  document.getElementById('overallDesc').textContent = desc;
+
+  const cards = document.getElementById('statsCards');
+  const sorted = [...headers.map((h,i) => ({ h, prob: axisProbs[i] }))].sort((a,b)=>b.prob-a.prob);
+
+  cards.innerHTML = sorted.map(({ h, prob }) => {
+    const col = probColor(prob);
+    return `
+      <div class="stat-card">
+        <div class="stat-axis">
+          <span>${h}</span>
+          <span class="stat-badge" style="color:${col};background:${col}22">${prob}%</span>
+        </div>
+        <div class="prob-bar-bg">
+          <div class="prob-bar-fill" style="width:${prob}%;background:linear-gradient(to right,${col}88,${col})"></div>
+        </div>
+        <div class="stat-meta">
+          ${getAxisMeta(headers.indexOf(h), series)}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function getAxisMeta(ai, series) {
+  const vals = series.map(s => s.values[ai]).filter(v => !isNaN(v));
+  if (!vals.length) return 'No data';
+  const mn = Math.min(...vals), mx = Math.max(...vals);
+  const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+  return `min ${mn.toFixed(2)} · avg ${mean.toFixed(2)} · max ${mx.toFixed(2)}`;
+}
+
+// ============================================================
+//  Results Table
+// ============================================================
+function renderResultsTable({ headers, axisProbs, series }) {
+  let html = '<table><thead><tr><th>시리즈</th>';
+  headers.forEach((h, i) => {
+    const col = probColor(axisProbs[i]);
+    html += `<th><span style="color:${col}">${h}</span><br><span style="font-size:10px;font-weight:400;color:var(--text-muted)">성공률 ${axisProbs[i]}%</span></th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  series.forEach(s => {
+    html += `<tr><td style="color:${s.color};font-weight:600">${s.name}</td>`;
+    s.values.forEach((v, ai) => {
+      const norm = s.normalized[ai];
+      const col  = probColor(axisProbs[ai]);
+      html += `<td>
+        <span>${isNaN(v) ? '—' : v.toFixed(2)}</span>
+        <span style="color:${col};font-size:10px;margin-left:4px">(${isNaN(norm)?'—':norm.toFixed(0)}%)</span>
+      </td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('resultsTable').innerHTML = html;
+}
+
+// ============================================================
+//  Utility
+// ============================================================
+function probColor(prob) {
+  // Gradient: red (0) → amber (50) → green (100)
+  if (prob < 50) {
+    const t = prob / 50;
+    return lerpColor('#ef4444', '#f59e0b', t);
+  } else {
+    const t = (prob - 50) / 50;
+    return lerpColor('#f59e0b', '#22c55e', t);
+  }
+}
+
+function lerpColor(a, b, t) {
+  const ar = parseInt(a.slice(1,3),16), ag = parseInt(a.slice(3,5),16), ab = parseInt(a.slice(5,7),16);
+  const br = parseInt(b.slice(1,3),16), bg = parseInt(b.slice(3,5),16), bb = parseInt(b.slice(5,7),16);
+  const rr = Math.round(ar + (br-ar)*t);
+  const rg = Math.round(ag + (bg-ag)*t);
+  const rb = Math.round(ab + (bb-ab)*t);
+  return `#${rr.toString(16).padStart(2,'0')}${rg.toString(16).padStart(2,'0')}${rb.toString(16).padStart(2,'0')}`;
+}
+
+// ============================================================
+//  Sample Data (demo without upload)
+// ============================================================
+// If you want to test without an Excel file, press F12 → console → loadSample()
+window.loadSample = function() {
+  const sampleData = [
+    ['항목', '속도', '정확도', '안정성', '효율성', '범위', '비용'],
+    ['전략 A', 82, 74, 65, 90, 55, 70],
+    ['전략 B', 78, 85, 80, 75, 70, 60],
+    ['전략 C', 90, 70, 72, 85, 60, 65],
+    ['전략 D', 75, 88, 78, 80, 65, 58],
+  ];
+  sheets['샘플 데이터'] = sampleData;
+  workbook = { SheetNames: ['샘플 데이터'] };
+  currentSheet = '샘플 데이터';
+  parsedData = sampleData;
+  renderSheetTabs();
+  renderDataPreview();
+  renderConfig();
+  // Auto-select rows 1-4
+  [1,2,3,4].forEach(i => selectedRows.add(i));
+  renderRowSelector();
+  document.getElementById('analysisSection').classList.remove('hidden');
+  document.getElementById('analysisSection').classList.add('fade-in');
+};
+</script>
+</body>
+</html>
