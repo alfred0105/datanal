@@ -87,6 +87,67 @@ export function calcCorrPairs(vars, cases) {
   return pairs;
 }
 
+/** KNN 예측 (가중 거리). inputVals: {변수명: 숫자}, k: 이웃 수 */
+export function knnPredict(vars, cases, inputVals, k = 7) {
+  if (cases.length === 0) return 50;
+
+  // 각 변수 min/max
+  const ranges = {};
+  for (const v of vars) {
+    const vals = cases.map((c) => c.vals[v]).filter((x) => x != null);
+    const mn = vals.length ? Math.min(...vals) : 0;
+    const mx = vals.length ? Math.max(...vals) : 1;
+    ranges[v] = { mn, mx, rng: mx - mn || 1 };
+  }
+
+  // 입력값 정규화
+  const normInput = vars.map((v) => {
+    const r = ranges[v];
+    return inputVals[v] != null ? (inputVals[v] - r.mn) / r.rng : 0.5;
+  });
+
+  // 각 케이스와의 거리
+  const dists = cases.map((c, idx) => {
+    const normC = vars.map((v) => {
+      const r = ranges[v];
+      return c.vals[v] != null ? (c.vals[v] - r.mn) / r.rng : 0.5;
+    });
+    const dist = Math.sqrt(normC.reduce((s, v, i) => s + (v - normInput[i]) ** 2, 0)) + 1e-9;
+    return { dist, label: c.result === "성공" ? 1 : 0 };
+  });
+
+  dists.sort((a, b) => a.dist - b.dist);
+  const topK = dists.slice(0, Math.min(k, dists.length));
+  const wSum = topK.reduce((s, d) => s + 1 / d.dist, 0);
+  const prob = topK.reduce((s, d) => s + (1 / d.dist) * d.label, 0) / wSum;
+  return Math.round(prob * 1000) / 10;
+}
+
+/** 변수별 성공확률 (분리도 기반) */
+export function calcAxisProbs(vars, cases) {
+  const total = cases.length;
+  if (total === 0) return {};
+  const sCount = cases.filter((c) => c.result === "성공").length;
+  const baseRate = sCount / total;
+  const probs = {};
+
+  for (const v of vars) {
+    const sVals = cases.filter((c) => c.result === "성공").map((c) => c.vals[v]).filter((x) => x != null);
+    const fVals = cases.filter((c) => c.result === "실패").map((c) => c.vals[v]).filter((x) => x != null);
+    const allVals = cases.map((c) => c.vals[v]).filter((x) => x != null);
+    const mn = allVals.length ? Math.min(...allVals) : 0;
+    const mx = allVals.length ? Math.max(...allVals) : 1;
+    const rng = mx - mn || 1;
+    const sMean = mean(sVals);
+    const fMean = mean(fVals);
+    const separation = (sMean - fMean) / rng;
+    let prob = baseRate + separation * 0.3;
+    prob = Math.max(5, Math.min(95, Math.round(prob * 100)));
+    probs[v] = prob;
+  }
+  return probs;
+}
+
 /** 성공확률 계산 (변수별) */
 export function calcVarStats(vars, cases) {
   const stats = {};
