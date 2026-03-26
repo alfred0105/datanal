@@ -29,14 +29,25 @@ export default function GroupPage({ params }) {
     const supabase = createClient();
     const [{ data: grp }, { data: mems }, { data: exps }] = await Promise.all([
       supabase.from("groups").select("*").eq("id", id).single(),
-      supabase.from("group_members").select("*, profiles(id, email, display_name)")
+      supabase.from("group_members").select("*")
         .eq("group_id", id).order("joined_at"),
       supabase.from("experiments").select("*, cases(id)")
         .eq("group_id", id).order("created_at", { ascending: false }),
     ]);
     if (!grp) { router.push("/dashboard"); return; }
+
+    // 멤버 프로필 별도 조회
+    const userIds = (mems || []).map(m => m.user_id);
+    let profiles = [];
+    if (userIds.length > 0) {
+      const { data: profs } = await supabase.from("profiles").select("*").in("id", userIds);
+      profiles = profs || [];
+    }
+    const profMap = {};
+    profiles.forEach(p => { profMap[p.id] = p; });
+
     setGroup(grp);
-    setMembers(mems || []);
+    setMembers((mems || []).map(m => ({ ...m, profiles: profMap[m.user_id] || null })));
     setExperiments(exps || []);
     setLoading(false);
   }, [id, router]);
