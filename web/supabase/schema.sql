@@ -71,7 +71,8 @@ create policy "본인 프로필 수정" on profiles for update using (auth.uid()
 
 -- groups
 create policy "그룹 멤버만 조회" on groups for select using (
-  id in (select group_id from group_members where user_id = auth.uid())
+  owner_id = auth.uid()
+  or id in (select group_id from group_members where user_id = auth.uid())
 );
 create policy "그룹 생성" on groups for insert with check (auth.uid() = owner_id);
 create policy "그룹장만 수정" on groups for update using (auth.uid() = owner_id);
@@ -79,7 +80,8 @@ create policy "그룹장만 삭제" on groups for delete using (auth.uid() = own
 
 -- group_members
 create policy "멤버 목록 조회" on group_members for select using (
-  group_id in (select group_id from group_members gm where gm.user_id = auth.uid())
+  user_id = auth.uid()
+  or group_id in (select id from groups where owner_id = auth.uid())
 );
 create policy "그룹장이 멤버 추가" on group_members for insert with check (
   group_id in (select id from groups where owner_id = auth.uid())

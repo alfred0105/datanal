@@ -20,10 +20,14 @@ export default function Dashboard() {
       .eq("user_id", userId)
       .order("joined_at", { ascending: false });
 
-    if (!data) { setLoading(false); return; }
+    if (!data || data.length === 0) { setGroups([]); setLoading(false); return; }
+
+    // groups join이 null인 행 제거
+    const valid = data.filter(d => d.groups);
+    if (valid.length === 0) { setGroups([]); setLoading(false); return; }
 
     // 그룹별 멤버수, 실험수 조회
-    const gIds = data.map(d => d.groups.id);
+    const gIds = valid.map(d => d.groups.id);
     const [{ data: memberCounts }, { data: expCounts }] = await Promise.all([
       supabase.from("group_members").select("group_id").in("group_id", gIds),
       supabase.from("experiments").select("group_id").in("group_id", gIds),
@@ -33,7 +37,7 @@ export default function Dashboard() {
     (memberCounts || []).forEach(m => { mCount[m.group_id] = (mCount[m.group_id] || 0) + 1; });
     (expCounts || []).forEach(e => { eCount[e.group_id] = (eCount[e.group_id] || 0) + 1; });
 
-    setGroups(data.map(d => ({
+    setGroups(valid.map(d => ({
       ...d.groups,
       role: d.role,
       memberCount: mCount[d.groups.id] || 0,
