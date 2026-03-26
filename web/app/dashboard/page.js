@@ -12,37 +12,40 @@ export default function Dashboard() {
   const [userId, setUserId] = useState(null);
 
   const fetchGroups = useCallback(async () => {
-    const supabase = createClient();
-    // 내가 속한 그룹 + 멤버수 + 실험수
-    const { data } = await supabase
-      .from("group_members")
-      .select("group_id, role, groups(id, name, owner_id, created_at)")
-      .eq("user_id", userId)
-      .order("joined_at", { ascending: false });
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("group_members")
+        .select("group_id, role, groups(id, name, owner_id, created_at)")
+        .eq("user_id", userId)
+        .order("joined_at", { ascending: false });
 
-    if (!data || data.length === 0) { setGroups([]); setLoading(false); return; }
+      if (error) { console.error("fetchGroups:", error.message); setGroups([]); setLoading(false); return; }
+      if (!data || data.length === 0) { setGroups([]); setLoading(false); return; }
 
-    // groups join이 null인 행 제거
-    const valid = data.filter(d => d.groups);
-    if (valid.length === 0) { setGroups([]); setLoading(false); return; }
+      const valid = data.filter(d => d.groups);
+      if (valid.length === 0) { setGroups([]); setLoading(false); return; }
 
-    // 그룹별 멤버수, 실험수 조회
-    const gIds = valid.map(d => d.groups.id);
-    const [{ data: memberCounts }, { data: expCounts }] = await Promise.all([
-      supabase.from("group_members").select("group_id").in("group_id", gIds),
-      supabase.from("experiments").select("group_id").in("group_id", gIds),
-    ]);
+      const gIds = valid.map(d => d.groups.id);
+      const [{ data: memberCounts }, { data: expCounts }] = await Promise.all([
+        supabase.from("group_members").select("group_id").in("group_id", gIds),
+        supabase.from("experiments").select("group_id").in("group_id", gIds),
+      ]);
 
-    const mCount = {}, eCount = {};
-    (memberCounts || []).forEach(m => { mCount[m.group_id] = (mCount[m.group_id] || 0) + 1; });
-    (expCounts || []).forEach(e => { eCount[e.group_id] = (eCount[e.group_id] || 0) + 1; });
+      const mCount = {}, eCount = {};
+      (memberCounts || []).forEach(m => { mCount[m.group_id] = (mCount[m.group_id] || 0) + 1; });
+      (expCounts || []).forEach(e => { eCount[e.group_id] = (eCount[e.group_id] || 0) + 1; });
 
-    setGroups(valid.map(d => ({
-      ...d.groups,
-      role: d.role,
-      memberCount: mCount[d.groups.id] || 0,
-      expCount: eCount[d.groups.id] || 0,
-    })));
+      setGroups(valid.map(d => ({
+        ...d.groups,
+        role: d.role,
+        memberCount: mCount[d.groups.id] || 0,
+        expCount: eCount[d.groups.id] || 0,
+      })));
+    } catch (err) {
+      console.error("fetchGroups 에러:", err);
+      setGroups([]);
+    }
     setLoading(false);
   }, [userId]);
 
@@ -70,9 +73,10 @@ export default function Dashboard() {
     if (error) { alert(error.message); return; }
 
     // 본인을 owner 멤버로 추가
-    await supabase.from("group_members").insert({
+    const { error: memErr } = await supabase.from("group_members").insert({
       group_id: grp.id, user_id: userId, role: "owner"
     });
+    if (memErr) { alert("멤버 추가 실패: " + memErr.message); return; }
 
     setNewName("");
     setShowCreate(false);
