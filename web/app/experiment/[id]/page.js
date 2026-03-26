@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback, use } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { createClient } from "../../../lib/supabase";
 import { useRouter } from "next/navigation";
 import {
@@ -10,7 +10,7 @@ import ScatterCanvas from "../../../components/ScatterCanvas";
 import CorrHeatmap from "../../../components/CorrHeatmap";
 
 export default function ExperimentPage({ params }) {
-  const { id } = use(params);
+  const { id } = params;
   const router = useRouter();
 
   const [experiment, setExperiment] = useState(null);

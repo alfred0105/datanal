@@ -1,10 +1,10 @@
 "use client";
-import { useState, useEffect, useCallback, use } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { createClient } from "../../../lib/supabase";
 import { useRouter } from "next/navigation";
 
 export default function GroupPage({ params }) {
-  const { id } = use(params);
+  const { id } = params;
   const router = useRouter();
 
   const [group, setGroup] = useState(null);
